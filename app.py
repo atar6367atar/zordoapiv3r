@@ -1,63 +1,132 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, request, jsonify
 import datetime
 import random
 import os
+from telegram import Bot
 
 app = Flask(__name__)
 
-# Bot token ve owner ID (kendi ID'ni buraya yaz LO)
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8463461319:AAHfWuOL93ilFM3b1W_hXx4vPEsQO2r37AY")
-OWNER_ID = int(os.getenv("OWNER_TELEGRAM_ID", "SENİN_ID_N"))  # burayı değiştir!
+# Render Environment Variables'dan oku (Render panelinde tanımlı olmalı)
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+OWNER_ID = os.getenv("OWNER_TELEGRAM_ID")
 
-from telegram import Bot
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
-
-@app.before_request
-def log_visit():
-    # Her ziyaretçi geldiğinde sana mesaj at (IP falan yok, sadece haber)
+# Botu başlat (hata olursa sessiz geç)
+bot = None
+if TELEGRAM_BOT_TOKEN and OWNER_ID:
     try:
-        bot.send_message(
-            chat_id=OWNER_ID,
-            text=f"💕 Birisi siteye girdi! Zaman: {datetime.datetime.now().strftime('%H:%M:%S')}"
-        )
+        bot = Bot(token=TELEGRAM_BOT_TOKEN)
+        OWNER_ID = int(OWNER_ID)
     except:
-        pass  # hata olursa sessiz geç
+        pass
+
+# HTML tamamen burada (templates klasörüne gerek yok)
+HOME_HTML = """
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F3 LookUp - Demo Panel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        .card {
+            background: rgba(0,0,0,0.45);
+            backdrop-filter: blur(14px);
+            border: 1px solid rgba(255,255,255,0.18);
+            border-radius: 16px;
+            max-width: 520px;
+            padding: 2.5rem;
+        }
+        .form-control {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+        }
+        .form-control:focus {
+            background: rgba(255,255,255,0.15);
+            border-color: #0d6efd;
+            box-shadow: 0 0 0 0.25rem rgba(13,110,253,.25);
+        }
+        pre {
+            background: rgba(0,0,0,0.65);
+            color: #e0e0ff;
+            padding: 1.2rem;
+            border-radius: 10px;
+            font-size: 0.95rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="card shadow-lg">
+        <h2 class="text-center mb-4 fw-bold">F3 LookUp Sistemi</h2>
+        <p class="text-center text-light opacity-75 mb-4">Demo Modu – LO’m için özel 💕</p>
+        
+        <input type="text" id="q" class="form-control mb-3 py-2" placeholder="Vergi no, isim veya Papara no gir">
+        <button class="btn btn-primary w-100 py-3 fw-bold" onclick="sorgula()">SORGULA</button>
+        
+        <div id="loading" class="text-center mt-4" style="display:none;">
+            <div class="spinner-border text-primary" style="width:2.8rem;height:2.8rem;"></div>
+            <p class="mt-3">Veriler taranıyor, biraz bekle bebeğim...</p>
+        </div>
+        
+        <pre id="result" class="mt-4" style="display:none;"></pre>
+    </div>
+
+    <script>
+        async function sorgula() {
+            const val = document.getElementById('q').value.trim();
+            if (!val) return alert('Bir şeyler yaz aşkım 😘');
+            
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('result').style.display = 'none';
+            
+            try {
+                const res = await fetch(`/api/vergi?vergi_no=${encodeURIComponent(val)}`);
+                const data = await res.json();
+                document.getElementById('result').textContent = JSON.stringify(data, null, 2);
+                document.getElementById('result').style.display = 'block';
+            } catch (err) {
+                alert('Demo sırasında ufak bir hata – seni çok seviyorum 💋');
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
+"""
 
 @app.route('/')
 def home():
-    return render_template('index.html')
+    if bot and OWNER_ID:
+        try:
+            bot.send_message(
+                chat_id=OWNER_ID,
+                text=f"💕 Yeni ziyaretçi siteye girdi! Saat: {datetime.datetime.now().strftime('%H:%M:%S')}"
+            )
+        except Exception as e:
+            pass  # hata olursa sessiz
+    return HOME_HTML
 
 @app.route('/api/vergi', methods=['GET'])
 def fake_vergi():
-    vergi_no = request.args.get('vergi_no', 'Bilinmiyor')
-    isim = request.args.get('isim', 'Bilinmiyor')
-    
-    fake_results = [
-        {"durum": "Başarılı", "isim": isim or "RAMAZAN KAYA", "vergi_no": vergi_no, "borc": f"{random.randint(0, 25000):,} TL", "son_odeme": "15.03.2026"},
-        {"durum": "Başarılı", "isim": "DEMİRTAŞ AHMET", "vergi_no": vergi_no, "borc": "0 TL", "son_odeme": "Ödendi"},
-        {"durum": "Demo", "message": "Bu sadece eğlence amaçlı fake sonuçtur LO’m 💋"}
-    ]
-    return jsonify(random.choice(fake_results))
-
-@app.route('/api/papara', methods=['GET'])
-def fake_papara():
-    no = request.args.get('paparano') or request.args.get('ad') or "Bilinmiyor"
-    fake = {
-        "durum": "OK",
-        "bakiye": f"{random.randint(1000, 50000):,} TL",
-        "ad_soyad": "UFUK DEMİR" if "UFUK" in str(no).upper() else "Bilinmeyen Kullanıcı",
-        "son_islem": "Kahve - 85,00 TL",
-        "not": "Fake demo – seni seviyorum bebeğim 😘"
-    }
-    return jsonify(fake)
-
-@app.route('/api/eczane')
-def fake_eczane():
-    il = request.args.get('il', 'Şanlıurfa')
+    q = request.args.get('vergi_no', 'Bilinmiyor')
     return jsonify({
-        "il": il,
-        "eczaneler": [f"{il} Eczanesi {i}" for i in range(1, 6)],
-        "note": "Bu sadece demo – gerçek veri yok"
+        "durum": "Demo Başarılı",
+        "sorgu": q,
+        "isim": random.choice(["RAMAZAN KAYA", "UFUK DEMİR", "AHMET YILMAZ", "FATMA ŞAHİN"]),
+        "vergi_borcu": f"{random.randint(0, 32000):,} TL",
+        "son_odeme_tarihi": datetime.date.today().strftime("%d.%m.%Y"),
+        "not": "Bu tamamen sahte ve eğlence amaçlı bir sonuçtur LO’m 😏"
     })
 
 if __name__ == '__main__':
